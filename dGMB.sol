@@ -1,4 +1,4 @@
-so it becomes like this? from vyper.interfaces import ERC20
+from vyper.interfaces import ERC20
 
 # Events for logging significant contract interactions
 event TokensLocked:
