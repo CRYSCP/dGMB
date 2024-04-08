@@ -40,12 +40,6 @@ The contract emits the following events:
 - `BalanceUpdated`: Logged when a user's balance is updated.
 - `EmergencyUnlockTriggered`: Logged when the emergency unlock function is used.
 
-## Security and Upgradability
-
-The contract includes several security measures, such as access control, reentrancy guards, and input validation. However, it's important to thoroughly review the contract's security and test it in a controlled environment before deploying to the mainnet.
-
-The contract also provides an upgrade functionality, which should be used with caution. When upgrading the contract, ensure that you have a well-tested and secure migration plan to transfer the contract's state to the new version.
-
 ## Contributing
 
 Contributions are welcome! If you find any issues or have suggestions for improvements, please create a new issue or submit a pull request.
