@@ -47,3 +47,5 @@ The contract owner can authorize other addresses to perform restricted actions:
 ```setAuthorized(_addr: address, _status: bool)```
 _addr: Address to modify authorization for.
 _status: True to authorize, false to revoke authorization.
+
+Remember to replace snapshot_balances with the actual name of your storage variable that stores historical veToken balances. You might also need to adjust the code further based on your specific contract structure and storage variable placement.
