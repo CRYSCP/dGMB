@@ -28,6 +28,13 @@ event EmergencyUnlockTriggered:
     user: indexed(address)
     amount: uint256
 
+event TokensWithdrawn:
+    token_address: indexed(address)
+    amount: uint256
+
+event ContractUpgraded:
+    new_contract: indexed(address)
+
 # Constants defining core parameters
 LOCK_PERIOD: constant(uint256) = 86400 * 365  # Lock period of 1 year
 MIN_LOCK_AMOUNT: constant(uint256) = 10000  # Minimum tokens required for locking
@@ -46,6 +53,9 @@ snapshot_balances: public(HashMap[uint256, HashMap[address, uint256]])  # Maps b
 # Initialize contract with essential information
 @external
 def __init__(_owner: address, _erc20: address, _fee_beneficiary: address):
+    assert _owner != ZERO_ADDRESS, "Invalid owner address"
+    assert _erc20 != ZERO_ADDRESS, "Invalid ERC20 address"
+    assert _fee_beneficiary != ZERO_ADDRESS, "Invalid fee beneficiary address"
     self.owner = _owner
     self.erc20 = ERC20(_erc20)
     self.authorized[_owner] = True
@@ -65,6 +75,8 @@ def onlyAuthorized():
 @nonreentrant('lock')
 def lock_tokens(amount: uint256):
     assert amount >= MIN_LOCK_AMOUNT, "Amount below minimum requirement"
+    assert self.erc20.balanceOf(msg.sender) >= amount, "Insufficient ERC20 balance"
+    assert self.locked_tokens[msg.sender] == 0, "Tokens already locked"
     assert self.erc20.allowance(msg.sender, self) >= amount, "Insufficient allowance"
 
     fee_amount: uint256 = amount * DEPOSIT_FEE_PERCENT / 100  # Calculate the fee
@@ -86,13 +98,15 @@ def lock_tokens(amount: uint256):
             self.num_active_users += 1
 
     log TokensLocked(msg.sender, net_amount, self.lock_end_time[msg.sender], net_amount)
-
 @external
 @nonreentrant('withdraw')
 def withdraw_erc20(token_address: address, amount: uint256):
     self.onlyOwner()
-    assert token_address != self.erc20, "Cannot withdraw the locked ERC20 token"  # Safety check
-    assert self.erc20.transfer(msg.sender, amount), "ERC20 transfer failed"
+    assert token_address != self.erc20, "Cannot withdraw the locked ERC20 token"
+    erc20_token: ERC20 = ERC20(token_address)
+    assert erc20_token.balanceOf(self) >= amount, "Insufficient contract balance"
+    assert erc20_token.transfer(msg.sender, amount), "ERC20 transfer failed"
+    log TokensWithdrawn(token_address, amount)
 
 # Reward distribution section
 reward_rate: public(uint256)  # Stores the pre-calculated reward rate
@@ -101,6 +115,7 @@ reward_rate: public(uint256)  # Stores the pre-calculated reward rate
 @nonreentrant('update')
 def updateRewardRate(new_reward_rate: uint256):
     self.onlyOwner()
+    assert new_reward_rate > 0, "Invalid reward rate"
     self.reward_rate = new_reward_rate
 
 @external
@@ -110,12 +125,14 @@ def distribute_rewards():
     assert self.total_available_rewards <= self.erc20.balanceOf(self), "Insufficient funds in reward pool"
     total_veTokens: uint256 = sum(self.veToken_balances.values())
     assert total_veTokens > 0, "No veTokens to distribute rewards to"
+    min_reward_threshold: uint256 = 1e18  # Minimum reward threshold (adjust as needed)
     for user, balance in self.veToken_balances.items():
         if balance > 0:
             user_share: uint256 = (balance * self.total_available_rewards) / total_veTokens
-            assert self.erc20.transfer(user, user_share), "Reward transfer failed."
-            self.total_available_rewards -= user_share
-            log RewardDistributed(user, user_share)
+            if user_share >= min_reward_threshold:
+                assert self.erc20.transfer(user, user_share), "Reward transfer failed."
+                self.total_available_rewards -= user_share
+                log RewardDistributed(user, user_share)
 
 @external
 @nonreentrant('fund')
@@ -141,7 +158,8 @@ def balanceOfAt(user: address, block_number: uint256) -> uint256:
 @nonreentrant('emergency')
 def emergencyUnlock(user: address):
     self.onlyOwner()
-    assert block.timestamp > self.lock_end_time[user], "Tokens are still locked"
+    assert block.timestamp > self.lock_end_time[user] + 30 days, "Emergency unlock time restriction not met"
+    # Alternatively, you can implement a multi-signature requirement for emergency unlocks
 
     amount: uint256 = self.locked_tokens[user]
     self.locked_tokens[user] = 0
@@ -156,14 +174,13 @@ def emergencyUnlock(user: address):
 @nonreentrant('upgrade')
 def upgradeContract(new_contract: address):
     self.onlyOwner()
-    # ... (extensive migration logic to transfer data to the new contract)
-    # Use a more secure upgradeability mechanism, such as the Transparent Proxy Pattern or the UUPS Proxy Pattern
-    selfdestruct(new_contract)  # Migrate contract state to the new contract
+    log ContractUpgraded(new_contract)
 
 @external
 @nonreentrant('claim')
 def claimTokens():
     assert block.timestamp > self.lock_end_time[msg.sender], "Tokens are still locked"
+    assert self.locked_tokens[msg.sender] > 0, "No locked tokens to claim"
 
     amount: uint256 = self.locked_tokens[msg.sender]
     self.locked_tokens[msg.sender] = 0
